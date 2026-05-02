@@ -189,24 +189,47 @@ public class ItemService {
                     // Construct floating path from versioned path
                     // example: items/Root/000001/demo_1.c -> items/Root/000001/demo.c
                     String floatingPath = versionedPath;
+                    String newVersionedPath = versionedPath;
+                    
                     if (versionedPath != null && versionedPath.contains("/")) {
                         int lastSlash = versionedPath.lastIndexOf('/');
                         String directory = versionedPath.substring(0, lastSlash);
                         String fileName = currentRev.getFileName().replaceAll("[^a-zA-Z0-9.-]", "_");
                         floatingPath = directory + "/" + fileName;
+                        
+                        // Parse existing version number from versionedPath and increment it
+                        String currentFile = versionedPath.substring(lastSlash + 1);
+                        int dotIndex = currentFile.lastIndexOf('.');
+                        String nameWithoutExt = (dotIndex == -1) ? currentFile : currentFile.substring(0, dotIndex);
+                        String ext = (dotIndex == -1) ? "" : currentFile.substring(dotIndex);
+                        
+                        int lastUnder = nameWithoutExt.lastIndexOf('_');
+                        int counter = 1;
+                        String baseName = nameWithoutExt;
+                        if (lastUnder != -1) {
+                            try {
+                                counter = Integer.parseInt(nameWithoutExt.substring(lastUnder + 1));
+                                baseName = nameWithoutExt.substring(0, lastUnder);
+                            } catch (NumberFormatException e) {
+                                // Fallback
+                            }
+                        }
+                        counter++; // Bump file iteration counter!
+                        
+                        newVersionedPath = directory + "/" + baseName + "_" + counter + ext;
                     }
                     
                     if (wsFile.exists()) {
-                        // 4. Versioning: Upload Workspace -> Supabase Vault (Overwrite both)
+                        // 4. Versioning: Upload Workspace -> Supabase Vault (Floating + New Snapshot)
                         SupabaseStorageClient cloudClient = new SupabaseStorageClient();
                         boolean uploadedMain = cloudClient.uploadFile("pdm-vault", floatingPath, wsFile);
-                        boolean uploadedVers = cloudClient.uploadFile("pdm-vault", versionedPath, wsFile);
+                        boolean uploadedVers = cloudClient.uploadFile("pdm-vault", newVersionedPath, wsFile);
                         
                         if (uploadedMain && uploadedVers) {
-                            // 5. UPDATE Current Revision (Same-Rev Check-In)
+                            // 5. UPDATE Current Revision DB pointer to the new snapshot
                             java.sql.Timestamp fileMod = new java.sql.Timestamp(wsFile.lastModified());
                             
-                            if (itemDAO.updateRevisionFile(item.getId(), revisionId, versionedPath, currentUser.getId(), fileMod, commitMessage)) {
+                            if (itemDAO.updateRevisionFile(item.getId(), revisionId, newVersionedPath, currentUser.getId(), fileMod, commitMessage)) {
                                 itemDAO.logAudit(itemId, revisionId, currentUser.getId(), "Checkin_Success", "Cloud Vault Update: " + commitMessage);
                                 return itemDAO.checkin(item.getId(), revisionId); // Just unlock
                             }
@@ -346,11 +369,23 @@ public class ItemService {
                             String fileName = r.getFileName();
                             String cleanOriginalName = fileName.replaceAll("[^a-zA-Z0-9.-]", "_");
                             
-                            int dotIndex = cleanOriginalName.lastIndexOf('.');
-                            String base = (dotIndex == -1) ? cleanOriginalName : cleanOriginalName.substring(0, dotIndex);
-                            String ext = (dotIndex == -1) ? "" : cleanOriginalName.substring(dotIndex);
+                            String currentFile = oldPath.substring(lastSlash + 1);
+                            int dotIndex = currentFile.lastIndexOf('.');
+                            String nameWithoutExt = (dotIndex == -1) ? currentFile : currentFile.substring(0, dotIndex);
+                            String ext = (dotIndex == -1) ? "" : currentFile.substring(dotIndex);
                             
-                            newPath = directory + "/" + base + "_" + nextRev + ext;
+                            int lastUnder = nameWithoutExt.lastIndexOf('_');
+                            int counter = 1;
+                            String baseName = nameWithoutExt;
+                            if (lastUnder != -1) {
+                                try {
+                                    counter = Integer.parseInt(nameWithoutExt.substring(lastUnder + 1));
+                                    baseName = nameWithoutExt.substring(0, lastUnder);
+                                } catch (NumberFormatException e) {}
+                            }
+                            counter++; // Bump counter for new Revise iteration
+                            
+                            newPath = directory + "/" + baseName + "_" + counter + ext;
                             
                             SupabaseStorageClient cloudClient = new SupabaseStorageClient();
                             try {

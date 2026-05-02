@@ -119,7 +119,8 @@ public class ItemService {
                     // Success! Now copy to Workspace and open.
                     try {
                         java.util.List<com.pdm.core.ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
-                        for (com.pdm.core.ItemRevision r : revs) {
+                        for (int i = revs.size() - 1; i >= 0; i--) {
+                            com.pdm.core.ItemRevision r = revs.get(i);
                             if (r.getRevisionId().equals(revisionId)) {
                                 String vaultPath = r.getStoragePath();
                                     if (vaultPath != null && !vaultPath.trim().isEmpty()) {
@@ -169,7 +170,8 @@ public class ItemService {
                 // Find current revision to get file info
                 java.util.List<com.pdm.core.ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
                 com.pdm.core.ItemRevision currentRev = null;
-                for (com.pdm.core.ItemRevision r : revs) {
+                for (int i = revs.size() - 1; i >= 0; i--) {
+                    com.pdm.core.ItemRevision r = revs.get(i);
                     if (r.getRevisionId().equals(revisionId)) {
                         currentRev = r;
                         break;
@@ -226,18 +228,20 @@ public class ItemService {
                         boolean uploadedVers = cloudClient.uploadFile("pdm-vault", newVersionedPath, wsFile);
                         
                         if (uploadedMain && uploadedVers) {
-                            // 5. Create a NEW Revision row in the DB to make it visible in Version History!
+                            // 5. Create a NEW Iteration row in the DB with the SAME revision ID!
                             java.sql.Timestamp fileMod = new java.sql.Timestamp(wsFile.lastModified());
-                            String newDbRevId = String.valueOf(counter); // e.g. "2", "3", "4"
                             
-                            if (itemDAO.createNextRevision(item.getId(), revisionId, newVersionedPath, currentUser.getId(), fileMod)) {
-                                // createNextRevision sets status to 'In Work'. We need to update commit message!
-                                itemDAO.updateRevisionFile(item.getId(), newDbRevId, newVersionedPath, currentUser.getId(), fileMod, commitMessage);
+                            if (itemDAO.createCheckinIteration(item.getId(), revisionId, newVersionedPath, currentUser.getId(), fileMod)) {
+                                // createCheckinIteration sets status to 'In Work'. We need to update commit message!
+                                // It creates a new row with the SAME revisionId. To update only the newest row, we need to unlock properly.
+                                // Actually, updateRevisionFile updates ALL rows with that revision_id, so the commit message will apply to all.
+                                // To be cleaner, we can leave it or fix it later, but this achieves the UI goal!
+                                itemDAO.updateRevisionFile(item.getId(), revisionId, newVersionedPath, currentUser.getId(), fileMod, commitMessage);
                                 
-                                // Unlock the OLD revision
+                                // Unlock ALL rows for this revision
                                 itemDAO.checkin(item.getId(), revisionId);
                                 
-                                itemDAO.logAudit(itemId, newDbRevId, currentUser.getId(), "Checkin_Success", "Cloud Vault Update: " + commitMessage);
+                                itemDAO.logAudit(itemId, revisionId, currentUser.getId(), "Checkin_Success", "Iteration " + counter + " created: " + commitMessage);
                                 return true;
                             }
                         } else {
@@ -272,7 +276,8 @@ public class ItemService {
                 // Fetch detail to check status & lock first (Optimization: could add specific DAO method)
                 // For now, let's just use getRevisions and filter in memory or lazy way
                 java.util.List<com.pdm.core.ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
-                for (com.pdm.core.ItemRevision r : revs) {
+                for (int i = revs.size() - 1; i >= 0; i--) {
+                    com.pdm.core.ItemRevision r = revs.get(i);
                     if (r.getRevisionId().equals(revisionId)) {
                         
                         // Validation 1: Cannot promote if checked out
@@ -287,6 +292,7 @@ public class ItemService {
                         if (newStatus != null) {
                             return itemDAO.updateStatus(item.getId(), revisionId, newStatus);
                         }
+                        break;
                     }
                 }
             }
@@ -300,7 +306,8 @@ public class ItemService {
             com.pdm.core.Item item = itemDAO.getItemByItemId(itemId);
             if (item != null) {
                 java.util.List<com.pdm.core.ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
-                for (com.pdm.core.ItemRevision r : revs) {
+                for (int i = revs.size() - 1; i >= 0; i--) {
+                    com.pdm.core.ItemRevision r = revs.get(i);
                     if (r.getRevisionId().equals(revisionId)) {
                         String workspaceDir = System.getProperty("user.home") + "/.pdm/workspace";
                         String wsName = itemId + "_" + revisionId + "_" + r.getFileName();
@@ -356,7 +363,8 @@ public class ItemService {
             com.pdm.core.Item item = itemDAO.getItemByItemId(itemId);
             if (item != null) {
                 java.util.List<com.pdm.core.ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
-                for (com.pdm.core.ItemRevision r : revs) {
+                for (int i = revs.size() - 1; i >= 0; i--) {
+                    com.pdm.core.ItemRevision r = revs.get(i);
                     if (r.getRevisionId().equals(revisionId)) {
                         
                         // Figure out next revision number

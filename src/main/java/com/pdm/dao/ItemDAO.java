@@ -65,7 +65,7 @@ public class ItemDAO {
                      "FROM item_revisions r " +
                      "LEFT JOIN users uc ON r.created_by = uc.id " +
                      "LEFT JOIN users um ON r.modified_by = um.id " +
-                     "WHERE r.item_pk = ? ORDER BY r.revision_id ASC";
+                     "WHERE r.item_pk = ? ORDER BY r.revision_id ASC, r.id ASC";
         
         try (Connection conn = DatabaseManager.getInstance().getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -303,6 +303,24 @@ public class ItemDAO {
                 updateStatus(itemPk, currentRevId, "Superseded");
             }
             return created;
+        }
+    }
+
+    public boolean createCheckinIteration(int itemPk, String currentRevId, String newStoragePath, int userId, java.sql.Timestamp fileModTimestamp) throws SQLException {
+        // Keeps the same revision_id to represent a file iteration instead of a major revision
+        String sql = "INSERT INTO item_revisions (item_pk, revision_id, status, checked_out_by, is_locked, file_name, storage_path, created_by, modified_by, file_mod_timestamp) " +
+                     "SELECT item_pk, ?, 'In Work', NULL, FALSE, file_name, ?, ?, ?, ? FROM item_revisions WHERE item_pk = ? AND revision_id = ? ORDER BY id DESC LIMIT 1";
+                     
+        try (Connection conn = DatabaseManager.getInstance().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, currentRevId);
+            stmt.setString(2, newStoragePath);
+            stmt.setInt(3, userId);
+            stmt.setInt(4, userId);
+            stmt.setTimestamp(5, fileModTimestamp);
+            stmt.setInt(6, itemPk);
+            stmt.setString(7, currentRevId);
+            return stmt.executeUpdate() > 0;
         }
     }
 

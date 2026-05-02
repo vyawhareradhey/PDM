@@ -37,7 +37,7 @@ public class RegisterFrame extends JFrame {
 
     private void initUI() {
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        
+
         JPanel mainPanel = new JPanel();
         mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 40, 20, 40));
@@ -46,39 +46,39 @@ public class RegisterFrame extends JFrame {
         JLabel titleLabel = new JLabel("Create Account");
         titleLabel.setFont(new Font("SansSerif", Font.BOLD, 20));
         titleLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
-        
+
         mainPanel.add(titleLabel);
         mainPanel.add(Box.createVerticalStrut(20));
 
         JPanel formPanel = new JPanel(new GridLayout(7, 2, 10, 10)); // Updated rows to 7
         formPanel.setBackground(new Color(245, 245, 245));
 
-        formPanel.add(new JLabel("Full Name:"));
+        formPanel.add(new JLabel("<html>Full Name: <font color='red'>*</font></html>"));
         fullNameField = new JTextField();
         formPanel.add(fullNameField);
-        
-        formPanel.add(new JLabel("Username:"));
+
+        formPanel.add(new JLabel("<html>Username: <font color='red'>*</font></html>"));
         usernameField = new JTextField();
         formPanel.add(usernameField);
-        
-        formPanel.add(new JLabel("Email:"));
+
+        formPanel.add(new JLabel("<html>Email: <font color='red'>*</font></html>"));
         emailField = new JTextField();
         formPanel.add(emailField);
 
-        formPanel.add(new JLabel("Employee ID:"));
+        formPanel.add(new JLabel("<html>Employee ID: <font color='red'>*</font></html>"));
         employeeIdField = new JTextField();
         formPanel.add(employeeIdField);
-        
-        formPanel.add(new JLabel("Role:"));
-        String[] roles = {"Engineer", "Manager", "Admin"};
+
+        formPanel.add(new JLabel("<html>Role: <font color='red'>*</font></html>"));
+        String[] roles = { "Engineer", "Admin" };
         roleCombo = new javax.swing.JComboBox<>(roles);
         formPanel.add(roleCombo);
 
-        formPanel.add(new JLabel("Password:"));
+        formPanel.add(new JLabel("<html>Password: <font color='red'>*</font></html>"));
         passwordField = new JPasswordField();
         formPanel.add(passwordField);
 
-        formPanel.add(new JLabel("Confirm Password:"));
+        formPanel.add(new JLabel("<html>Confirm Password: <font color='red'>*</font></html>"));
         confirmPasswordField = new JPasswordField();
         formPanel.add(confirmPasswordField);
 
@@ -88,11 +88,11 @@ public class RegisterFrame extends JFrame {
         JButton registerButton = new JButton("Register");
         registerButton.setAlignmentX(Component.CENTER_ALIGNMENT);
         registerButton.addActionListener(this::handleRegister);
-        
+
         mainPanel.add(registerButton);
 
         add(mainPanel, BorderLayout.CENTER);
-        
+
         pack();
         setMinimumSize(getSize());
         setLocationRelativeTo(null);
@@ -107,7 +107,7 @@ public class RegisterFrame extends JFrame {
         String employeeId = employeeIdField.getText().trim();
         String roleName = (String) roleCombo.getSelectedItem();
 
-        if (username.isEmpty() || password.isEmpty() || email.isEmpty() || employeeId.isEmpty()) {
+        if (username.isEmpty() || password.isEmpty() || confirm.isEmpty() || fullName.isEmpty() || email.isEmpty() || employeeId.isEmpty()) {
             JOptionPane.showMessageDialog(this, "All fields are required.", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
@@ -118,10 +118,12 @@ public class RegisterFrame extends JFrame {
         }
 
         if (authService.register(username, password, fullName, email, employeeId, roleName)) {
-            JOptionPane.showMessageDialog(this, "Registration Successful! Please login.", "Success", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Registration Successful! Please login.", "Success",
+                    JOptionPane.INFORMATION_MESSAGE);
             dispose();
         } else {
-            JOptionPane.showMessageDialog(this, "Registration Failed. Username might already exist.", "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Registration Failed. Username might already exist.", "Error",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
 }

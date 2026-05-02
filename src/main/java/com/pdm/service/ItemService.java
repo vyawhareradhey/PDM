@@ -345,12 +345,6 @@ public class ItemService {
         User currentUser = SessionContext.getInstance().getCurrentUser();
         if (currentUser == null) return false;
         
-        // Validation: Only Admin can revise
-        if (!"Admin".equalsIgnoreCase(currentUser.getRole().getName())) {
-            javax.swing.JOptionPane.showMessageDialog(null, "Only Administrators can Revise items.");
-            return false;
-        }
-        
         try {
             com.pdm.core.Item item = itemDAO.getItemByItemId(itemId);
             if (item != null) {

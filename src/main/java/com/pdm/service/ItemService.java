@@ -36,20 +36,27 @@ public class ItemService {
             
             String originalName = file.getName();
             String cleanOriginalName = originalName.replaceAll("[^a-zA-Z0-9.-]", "_");
-            String storageName = "1_" + cleanOriginalName;
             
-            // New Alternative 2 Structure: items/[folder]/[itemId]/[rev]_[fileName]
-            String cloudPath = storageDir + "/" + itemId + "/" + storageName;
+            int dotIndex = cleanOriginalName.lastIndexOf('.');
+            String base = (dotIndex == -1) ? cleanOriginalName : cleanOriginalName.substring(0, dotIndex);
+            String ext = (dotIndex == -1) ? "" : cleanOriginalName.substring(dotIndex);
             
-            // Upload to Supabase Cloud
+            String floatingPath = storageDir + "/" + itemId + "/" + cleanOriginalName;
+            String versionedPath = storageDir + "/" + itemId + "/" + base + "_1" + ext;
+            
+            // Upload to Supabase Cloud - Floating Latest
             SupabaseStorageClient cloudClient = new SupabaseStorageClient();
-            boolean uploaded = cloudClient.uploadFile("pdm-vault", cloudPath, file);
-            if (!uploaded) {
+            boolean uploadedMain = cloudClient.uploadFile("pdm-vault", floatingPath, file);
+            
+            // Upload to Supabase Cloud - Version 1 Snapshot
+            boolean uploadedVers = cloudClient.uploadFile("pdm-vault", versionedPath, file);
+            
+            if (!uploadedMain || !uploadedVers) {
                 System.err.println("Cloud Upload Failed!");
                 return false;
             }
             
-            String storagePath = cloudPath;
+            String storagePath = versionedPath; // DB tracks the specific version
             
             // 2. Create Item Master
             // We create a temporary item object to pass data, ID is 0 initially
@@ -176,21 +183,30 @@ public class ItemService {
                     String wsName = itemId + "_" + revisionId + "_" + currentRev.getFileName();
                     java.io.File wsFile = new java.io.File(workspaceDir, wsName);
                     
-                    // 2. Cloud Path
-                    String cloudPath = currentRev.getStoragePath();
+                    // 2. Cloud Path (versioned)
+                    String versionedPath = currentRev.getStoragePath();
+                    
+                    // Construct floating path from versioned path
+                    // example: items/Root/000001/demo_1.c -> items/Root/000001/demo.c
+                    String floatingPath = versionedPath;
+                    if (versionedPath != null && versionedPath.contains("/")) {
+                        int lastSlash = versionedPath.lastIndexOf('/');
+                        String directory = versionedPath.substring(0, lastSlash);
+                        String fileName = currentRev.getFileName().replaceAll("[^a-zA-Z0-9.-]", "_");
+                        floatingPath = directory + "/" + fileName;
+                    }
                     
                     if (wsFile.exists()) {
-                        // 3. Compare content using local workspace file (Skip length compare since cloud file isn't local)
-                        
-                        // 4. Versioning: Upload Workspace -> Supabase Vault (Overwrite)
+                        // 4. Versioning: Upload Workspace -> Supabase Vault (Overwrite both)
                         SupabaseStorageClient cloudClient = new SupabaseStorageClient();
-                        boolean uploaded = cloudClient.uploadFile("pdm-vault", cloudPath, wsFile);
+                        boolean uploadedMain = cloudClient.uploadFile("pdm-vault", floatingPath, wsFile);
+                        boolean uploadedVers = cloudClient.uploadFile("pdm-vault", versionedPath, wsFile);
                         
-                        if (uploaded) {
+                        if (uploadedMain && uploadedVers) {
                             // 5. UPDATE Current Revision (Same-Rev Check-In)
                             java.sql.Timestamp fileMod = new java.sql.Timestamp(wsFile.lastModified());
                             
-                            if (itemDAO.updateRevisionFile(item.getId(), revisionId, cloudPath, currentUser.getId(), fileMod, commitMessage)) {
+                            if (itemDAO.updateRevisionFile(item.getId(), revisionId, versionedPath, currentUser.getId(), fileMod, commitMessage)) {
                                 itemDAO.logAudit(itemId, revisionId, currentUser.getId(), "Checkin_Success", "Cloud Vault Update: " + commitMessage);
                                 return itemDAO.checkin(item.getId(), revisionId); // Just unlock
                             }
@@ -329,13 +345,20 @@ public class ItemService {
                             String directory = oldPath.substring(0, lastSlash);
                             String fileName = r.getFileName();
                             String cleanOriginalName = fileName.replaceAll("[^a-zA-Z0-9.-]", "_");
-                            newPath = directory + "/" + nextRev + "_" + cleanOriginalName;
+                            
+                            int dotIndex = cleanOriginalName.lastIndexOf('.');
+                            String base = (dotIndex == -1) ? cleanOriginalName : cleanOriginalName.substring(0, dotIndex);
+                            String ext = (dotIndex == -1) ? "" : cleanOriginalName.substring(dotIndex);
+                            
+                            newPath = directory + "/" + base + "_" + nextRev + ext;
                             
                             SupabaseStorageClient cloudClient = new SupabaseStorageClient();
                             try {
                                 java.io.File tempFile = java.io.File.createTempFile("pdm_revise", ".tmp");
                                 if (cloudClient.downloadFile("pdm-vault", oldPath, tempFile)) {
                                     cloudClient.uploadFile("pdm-vault", newPath, tempFile);
+                                    // Optionally re-upload floating path just in case
+                                    cloudClient.uploadFile("pdm-vault", directory + "/" + cleanOriginalName, tempFile);
                                 }
                                 tempFile.delete();
                             } catch (Exception ex) {

@@ -132,7 +132,7 @@ public class ItemDAO {
             "JOIN users u ON i.owner_id = u.id " +
             "LEFT JOIN users co_u ON r.checked_out_by = co_u.id " +
             "LEFT JOIN roles ro ON co_u.role_id = ro.id " +
-            "WHERE r.id = (SELECT MAX(id) FROM item_revisions rev WHERE rev.item_pk = i.id) "
+            "WHERE 1=1 "
         );
         
         if (query != null && !query.trim().isEmpty()) {
@@ -189,8 +189,7 @@ public class ItemDAO {
                      "LEFT JOIN roles ro ON co_u.role_id = ro.id " +
                      "JOIN folder_items fi ON i.id = fi.item_id " +
                      "WHERE fi.folder_id = ? " +
-                     "AND r.id = (SELECT MAX(id) FROM item_revisions rev WHERE rev.item_pk = i.id) " +
-                     "ORDER BY i.item_id ASC";
+                     "ORDER BY i.item_id ASC, r.revision_id ASC";
         
         try (Connection conn = DatabaseManager.getInstance().getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {

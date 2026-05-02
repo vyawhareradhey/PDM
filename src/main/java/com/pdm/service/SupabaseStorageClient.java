@@ -113,4 +113,21 @@ public class SupabaseStorageClient {
         }
         return false;
     }
+
+    public boolean deleteFile(String bucket, String filePath) {
+        try {
+            String encodedPath = filePath.replace(" ", "%20");
+            URL url = new URL(supabaseUrl + "/storage/v1/object/" + bucket + "/" + encodedPath);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("DELETE");
+            conn.setRequestProperty("Authorization", "Bearer " + supabaseKey);
+            conn.setRequestProperty("apikey", supabaseKey);
+
+            int responseCode = conn.getResponseCode();
+            return responseCode == 200 || responseCode == 204;
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
 }

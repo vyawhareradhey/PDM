@@ -335,6 +335,16 @@ public class ItemService {
 
     public boolean deleteItem(String itemId) {
         try {
+            com.pdm.core.Item item = itemDAO.getItemByItemId(itemId);
+            if (item != null) {
+                java.util.List<com.pdm.core.ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
+                SupabaseStorageClient cloudClient = new SupabaseStorageClient();
+                for (com.pdm.core.ItemRevision r : revs) {
+                    if (r.getStoragePath() != null && !r.getStoragePath().isEmpty()) {
+                        cloudClient.deleteFile("pdm-vault", r.getStoragePath());
+                    }
+                }
+            }
             return itemDAO.deleteItem(itemId);
         } catch (Exception e) { 
             e.printStackTrace();
@@ -353,8 +363,19 @@ public class ItemService {
         try {
             com.pdm.core.Item item = itemDAO.getItemByItemId(itemId);
             if (item != null) {
+                // Delete physical files from cloud for purged revisions
+                java.util.List<com.pdm.core.ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
+                SupabaseStorageClient cloudClient = new SupabaseStorageClient();
+                for (com.pdm.core.ItemRevision r : revs) {
+                    if (!r.getRevisionId().equals(keepRevisionId)) {
+                        if (r.getStoragePath() != null && !r.getStoragePath().trim().isEmpty()) {
+                            cloudClient.deleteFile("pdm-vault", r.getStoragePath());
+                        }
+                    }
+                }
+                
                 if (itemDAO.purgeRevisions(item.getId(), keepRevisionId)) {
-                    itemDAO.logAudit(itemId, keepRevisionId, currentUser.getId(), "Purge", "Purged prior revisions");
+                    itemDAO.logAudit(itemId, keepRevisionId, currentUser.getId(), "Purge", "Purged prior revisions and cloud files");
                     return true;
                 }
             }

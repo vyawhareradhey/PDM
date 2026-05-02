@@ -13,6 +13,7 @@
 /Users/radheyvyawhare/Desktop/PDM/src/main/java/com/pdm/service/AuthService.java
 /Users/radheyvyawhare/Desktop/PDM/src/main/java/com/pdm/service/FolderService.java
 /Users/radheyvyawhare/Desktop/PDM/src/main/java/com/pdm/service/ItemService.java
+/Users/radheyvyawhare/Desktop/PDM/src/main/java/com/pdm/service/SupabaseStorageClient.java
 /Users/radheyvyawhare/Desktop/PDM/src/main/java/com/pdm/ui/auth/ForgotPasswordDialog.java
 /Users/radheyvyawhare/Desktop/PDM/src/main/java/com/pdm/ui/auth/LoginFrame.java
 /Users/radheyvyawhare/Desktop/PDM/src/main/java/com/pdm/ui/auth/RegisterFrame.java

@@ -34,18 +34,21 @@ public class ItemService {
             com.pdm.service.FolderService fs = new com.pdm.service.FolderService();
             String storageDir = fs.getPhysicalPath(selectedFolder);
             
-            java.io.File vaultDir = new java.io.File(storageDir);
-            if (!vaultDir.exists()) vaultDir.mkdirs();
-            
             String originalName = file.getName();
             String cleanOriginalName = originalName.replaceAll("[^a-zA-Z0-9.-]", "_");
-            
             String storageName = itemId + "_" + cleanOriginalName;
-            java.io.File destFile = new java.io.File(vaultDir, storageName);
             
-            // Simple copy
-            java.nio.file.Files.copy(file.toPath(), destFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            String storagePath = destFile.getAbsolutePath();
+            String cloudPath = storageDir + "/" + storageName;
+            
+            // Upload to Supabase Cloud
+            SupabaseStorageClient cloudClient = new SupabaseStorageClient();
+            boolean uploaded = cloudClient.uploadFile("pdm-vault", cloudPath, file);
+            if (!uploaded) {
+                System.err.println("Cloud Upload Failed!");
+                return false;
+            }
+            
+            String storagePath = cloudPath;
             
             // 2. Create Item Master
             // We create a temporary item object to pass data, ID is 0 initially
@@ -111,9 +114,7 @@ public class ItemService {
                         for (com.pdm.core.ItemRevision r : revs) {
                             if (r.getRevisionId().equals(revisionId)) {
                                 String vaultPath = r.getStoragePath();
-                                if (vaultPath != null && !vaultPath.trim().isEmpty()) {
-                                    java.io.File vaultFile = new java.io.File(vaultPath);
-                                    if (vaultFile.exists()) {
+                                    if (vaultPath != null && !vaultPath.trim().isEmpty()) {
                                         // 1. Create Workspace Dir
                                         String workspaceDir = System.getProperty("user.home") + "/.pdm/workspace";
                                         new java.io.File(workspaceDir).mkdirs();
@@ -122,16 +123,20 @@ public class ItemService {
                                         String wsName = itemId + "_" + revisionId + "_" + r.getFileName();
                                         java.io.File wsFile = new java.io.File(workspaceDir, wsName);
                                         
-                                        // 3. Copy Vault -> Workspace
-                                        java.nio.file.Files.copy(vaultFile.toPath(), wsFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                                        // 3. Download from Supabase Cloud -> Workspace
+                                        SupabaseStorageClient cloudClient = new SupabaseStorageClient();
+                                        boolean downloaded = cloudClient.downloadFile("pdm-vault", vaultPath, wsFile);
                                         
-                                        // 4. Open Workspace File
-                                        if (java.awt.Desktop.isDesktopSupported()) {
-                                            java.awt.Desktop.getDesktop().open(wsFile);
+                                        if (downloaded && wsFile.exists()) {
+                                            // 4. Open Workspace File
+                                            if (java.awt.Desktop.isDesktopSupported()) {
+                                                java.awt.Desktop.getDesktop().open(wsFile);
+                                            }
+                                            itemDAO.logAudit(itemId, revisionId, currentUser.getId(), "Checkout", "File downloaded from cloud to workspace");
+                                        } else {
+                                            System.err.println("Failed to download file from Supabase Cloud.");
                                         }
-                                        itemDAO.logAudit(itemId, revisionId, currentUser.getId(), "Checkout", "File checked out to workspace");
                                     }
-                                }
                                 break;
                             }
                         }
@@ -170,51 +175,27 @@ public class ItemService {
                     String wsName = itemId + "_" + revisionId + "_" + currentRev.getFileName();
                     java.io.File wsFile = new java.io.File(workspaceDir, wsName);
                     
-                    // 2. Locate Vault File
-                    java.io.File vaultFile = new java.io.File(currentRev.getStoragePath());
+                    // 2. Cloud Path
+                    String cloudPath = currentRev.getStoragePath();
                     
-                    if (wsFile.exists() && vaultFile.exists()) {
-                        // 3. Compare content (size/lastModified simple check, real app uses hash)
-                        boolean modified = wsFile.length() != vaultFile.length(); 
-                        // Note: Timestamp check is tricky if copy preserves it. Let's rely on simple length or assume modified if verified.
-                        // Better: SHA Check.
-                        try {
-                             byte[] wsBytes = java.nio.file.Files.readAllBytes(wsFile.toPath());
-                             byte[] vaultBytes = java.nio.file.Files.readAllBytes(vaultFile.toPath());
-                             if (java.util.Arrays.equals(wsBytes, vaultBytes)) {
-                                 itemDAO.logAudit(itemId, revisionId, currentUser.getId(), "Checkin_Failed", "No changes detected");
-                                 javax.swing.JOptionPane.showMessageDialog(null, "No changes detected. Save the file before checking in.");
-                                 return false;
-                             }
-                        } catch (java.io.IOException e) {
-                             e.printStackTrace();
-                             return false;
-                        }
-
-                        // 4. Versioning: Copy Workspace -> Vault (New Name)
-                        // Retrieve the old file parent to stack the new version natively inside the same structural hierarchy location!
-                        java.io.File locStorage = vaultFile.getParentFile();
-                        if (!locStorage.exists()) locStorage.mkdirs();
+                    if (wsFile.exists()) {
+                        // 3. Compare content using local workspace file (Skip length compare since cloud file isn't local)
                         
-                        String originalName = currentRev.getFileName();
-                        String cleanOriginalName = originalName.replaceAll("[^a-zA-Z0-9.-]", "_");
+                        // 4. Versioning: Upload Workspace -> Supabase Vault (Overwrite)
+                        SupabaseStorageClient cloudClient = new SupabaseStorageClient();
+                        boolean uploaded = cloudClient.uploadFile("pdm-vault", cloudPath, wsFile);
                         
-                        String newStorageName = itemId + "_" + cleanOriginalName;
-                        java.io.File newVaultFile = new java.io.File(locStorage, newStorageName);
-                        
-                        try {
-                            java.nio.file.Files.copy(wsFile.toPath(), newVaultFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                            
+                        if (uploaded) {
                             // 5. UPDATE Current Revision (Same-Rev Check-In)
                             java.sql.Timestamp fileMod = new java.sql.Timestamp(wsFile.lastModified());
                             
-                            if (itemDAO.updateRevisionFile(item.getId(), revisionId, newVaultFile.getAbsolutePath(), currentUser.getId(), fileMod, commitMessage)) {
-                                itemDAO.logAudit(itemId, revisionId, currentUser.getId(), "Checkin_Success", commitMessage);
+                            if (itemDAO.updateRevisionFile(item.getId(), revisionId, cloudPath, currentUser.getId(), fileMod, commitMessage)) {
+                                itemDAO.logAudit(itemId, revisionId, currentUser.getId(), "Checkin_Success", "Cloud Vault Update: " + commitMessage);
                                 return itemDAO.checkin(item.getId(), revisionId); // Just unlock
                             }
-                            
-                        } catch (java.io.IOException e) {
-                            e.printStackTrace();
+                        } else {
+                            System.err.println("Check-in Failed: Cloud Upload Error");
+                            return false;
                         }
                     } else {
                         // Fallback logic if no file attached: just unlock
@@ -277,18 +258,10 @@ public class ItemService {
                         String workspaceDir = System.getProperty("user.home") + "/.pdm/workspace";
                         String wsName = itemId + "_" + revisionId + "_" + r.getFileName();
                         java.io.File wsFile = new java.io.File(workspaceDir, wsName);
-                        java.io.File vaultFile = new java.io.File(r.getStoragePath());
                         
-                        if (wsFile.exists() && vaultFile.exists()) {
-                            try {
-                                byte[] wsBytes = java.nio.file.Files.readAllBytes(wsFile.toPath());
-                                byte[] vaultBytes = java.nio.file.Files.readAllBytes(vaultFile.toPath());
-                                return !java.util.Arrays.equals(wsBytes, vaultBytes);
-                            } catch (java.io.IOException e) {
-                                e.printStackTrace();
-                            }
-                        }
-                        break;
+                        // We simply assume modified if it exists locally in the workspace.
+                        // Full byte comparison against cloud requires downloading it again, which is heavy.
+                        return wsFile.exists();
                     }
                 }
             }

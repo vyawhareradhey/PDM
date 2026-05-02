@@ -24,10 +24,8 @@ public class FolderService {
         try {
             int newFolderId = folderDAO.createFolder(name, parentId, currentUser.getId());
             if (newFolderId != -1) {
-                // Mirror to OS Filesystem
-                Folder newFolder = folderDAO.getFolderById(newFolderId);
-                String physicalPath = getPhysicalPath(newFolder);
-                new java.io.File(physicalPath).mkdirs();
+                // Cloud Object Storage does not require empty physical directories
+                // Logical Folder is created successfully in DB
                 return true;
             }
         } catch (SQLException e) {
@@ -51,7 +49,7 @@ public class FolderService {
     //
     //////////////////////////////////////////////////
     public String getPhysicalPath(Folder folder) {
-        String base = "/Users/radheyvyawhare/Desktop/PDM/items";
+        String base = "items";
         if (folder == null) return base + "/Root";
         
         java.util.List<String> parts = new java.util.ArrayList<>();

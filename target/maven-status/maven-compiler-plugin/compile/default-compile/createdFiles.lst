@@ -25,6 +25,7 @@ com/pdm/ui/home/NavigatorPanel$1.class
 com/pdm/ui/home/MainFrame.class
 com/pdm/core/ItemRevision.class
 com/pdm/ui/creation/NewItemDialog$1.class
+com/pdm/service/SupabaseStorageClient.class
 com/pdm/ui/help/AboutDialog.class
 com/pdm/ui/home/ItemTablePanel$3.class
 com/pdm/ui/creation/NewItemDialog.class

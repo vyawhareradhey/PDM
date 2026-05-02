@@ -1,0 +1,6 @@
+db.url=jdbc:postgresql://your-pooler-url:6543/postgres
+db.user=postgres.your_id
+db.password=your_password
+
+supabase.url=https://your-project.supabase.co
+supabase.key=your_service_role_key

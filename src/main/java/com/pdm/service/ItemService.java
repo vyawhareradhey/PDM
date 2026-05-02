@@ -36,9 +36,10 @@ public class ItemService {
             
             String originalName = file.getName();
             String cleanOriginalName = originalName.replaceAll("[^a-zA-Z0-9.-]", "_");
-            String storageName = itemId + "_" + cleanOriginalName;
+            String storageName = "1_" + cleanOriginalName;
             
-            String cloudPath = storageDir + "/" + storageName;
+            // New Alternative 2 Structure: items/[folder]/[itemId]/[rev]_[fileName]
+            String cloudPath = storageDir + "/" + itemId + "/" + storageName;
             
             // Upload to Supabase Cloud
             SupabaseStorageClient cloudClient = new SupabaseStorageClient();
@@ -311,9 +312,39 @@ public class ItemService {
                 java.util.List<com.pdm.core.ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
                 for (com.pdm.core.ItemRevision r : revs) {
                     if (r.getRevisionId().equals(revisionId)) {
-                        // Create a new revision copying the storage path of the previous
+                        
+                        // Figure out next revision number
+                        int revNum = 1;
+                        try {
+                            revNum = Integer.parseInt(revisionId);
+                        } catch (Exception e) {}
+                        String nextRev = String.valueOf(revNum + 1);
+                        
+                        String oldPath = r.getStoragePath();
+                        String newPath = oldPath;
+                        
+                        // Generate the new physical cloud path and duplicate the file
+                        if (oldPath != null && oldPath.contains("/")) {
+                            int lastSlash = oldPath.lastIndexOf('/');
+                            String directory = oldPath.substring(0, lastSlash);
+                            String fileName = r.getFileName();
+                            String cleanOriginalName = fileName.replaceAll("[^a-zA-Z0-9.-]", "_");
+                            newPath = directory + "/" + nextRev + "_" + cleanOriginalName;
+                            
+                            SupabaseStorageClient cloudClient = new SupabaseStorageClient();
+                            try {
+                                java.io.File tempFile = java.io.File.createTempFile("pdm_revise", ".tmp");
+                                if (cloudClient.downloadFile("pdm-vault", oldPath, tempFile)) {
+                                    cloudClient.uploadFile("pdm-vault", newPath, tempFile);
+                                }
+                                tempFile.delete();
+                            } catch (Exception ex) {
+                                ex.printStackTrace();
+                            }
+                        }
+
                         java.sql.Timestamp currentModTime = new java.sql.Timestamp(System.currentTimeMillis());
-                        return itemDAO.createNextRevision(item.getId(), revisionId, r.getStoragePath(), currentUser.getId(), currentModTime);
+                        return itemDAO.createNextRevision(item.getId(), revisionId, newPath, currentUser.getId(), currentModTime);
                     }
                 }
             }

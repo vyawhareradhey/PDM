@@ -65,7 +65,7 @@ public class ItemDAO {
                      "FROM item_revisions r " +
                      "LEFT JOIN users uc ON r.created_by = uc.id " +
                      "LEFT JOIN users um ON r.modified_by = um.id " +
-                     "WHERE r.item_pk = ? ORDER BY r.revision_id ASC, r.id ASC";
+                     "WHERE r.item_pk = ? ORDER BY r.revision_id ASC";
         
         try (Connection conn = DatabaseManager.getInstance().getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -93,6 +93,54 @@ public class ItemDAO {
             }
         }
         return revs;
+    }
+
+    public java.util.List<Object[]> getFileVersions(String itemId) throws SQLException {
+        java.util.List<Object[]> versions = new java.util.ArrayList<>();
+        String sql = "SELECT a.revision_id, a.details, a.timestamp, u.username " +
+                     "FROM item_audit_logs a " +
+                     "JOIN users u ON a.user_id = u.id " +
+                     "WHERE a.item_id = ? AND a.action = 'Checkin_Success' " +
+                     "ORDER BY a.id ASC";
+        
+        try (Connection conn = DatabaseManager.getInstance().getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+             
+            stmt.setString(1, itemId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                int versionNumber = 1;
+                while (rs.next()) {
+                    String revId = rs.getString("revision_id");
+                    String details = rs.getString("details");
+                    java.sql.Timestamp ts = rs.getTimestamp("timestamp");
+                    String user = rs.getString("username");
+                    
+                    String filePath = "";
+                    String msg = details;
+                    if (details != null && details.contains(" | ")) {
+                        String[] parts = details.split(" \\| ", 2);
+                        filePath = parts[0];
+                        msg = parts[1];
+                        
+                        // Extract just the file name from the path
+                        int lastSlash = filePath.lastIndexOf('/');
+                        if (lastSlash != -1) filePath = filePath.substring(lastSlash + 1);
+                    }
+                    
+                    // Prepend Revision ID to version number for clarity e.g. "Rev 1 - v1"
+                    String displayVersion = "Rev " + revId + " - Iteration " + versionNumber++;
+                    
+                    versions.add(new Object[]{
+                        displayVersion,
+                        filePath,
+                        user,
+                        (ts != null ? ts.toString() : ""),
+                        msg
+                    });
+                }
+            }
+        }
+        return versions;
     }
 
     public String generateNextItemId() throws SQLException {
@@ -303,24 +351,6 @@ public class ItemDAO {
                 updateStatus(itemPk, currentRevId, "Superseded");
             }
             return created;
-        }
-    }
-
-    public boolean createCheckinIteration(int itemPk, String currentRevId, String newStoragePath, int userId, java.sql.Timestamp fileModTimestamp) throws SQLException {
-        // Keeps the same revision_id to represent a file iteration instead of a major revision
-        String sql = "INSERT INTO item_revisions (item_pk, revision_id, status, checked_out_by, is_locked, file_name, storage_path, created_by, modified_by, file_mod_timestamp) " +
-                     "SELECT item_pk, ?, 'In Work', NULL, FALSE, file_name, ?, ?, ?, ? FROM item_revisions WHERE item_pk = ? AND revision_id = ? ORDER BY id DESC LIMIT 1";
-                     
-        try (Connection conn = DatabaseManager.getInstance().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, currentRevId);
-            stmt.setString(2, newStoragePath);
-            stmt.setInt(3, userId);
-            stmt.setInt(4, userId);
-            stmt.setTimestamp(5, fileModTimestamp);
-            stmt.setInt(6, itemPk);
-            stmt.setString(7, currentRevId);
-            return stmt.executeUpdate() > 0;
         }
     }
 

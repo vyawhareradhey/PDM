@@ -236,19 +236,9 @@ public class ItemDetailPanel extends JPanel {
                 DefaultTableModel modelHist = (DefaultTableModel) tableHist.getModel();
                 modelHist.setRowCount(0);
                 
-                for (int i = revs.size() - 1; i >= 0; i--) {
-                    ItemRevision rev = revs.get(i);
-                    int versionNumber = i + 1;
-                    String modUser = rev.getModifiedByName();
-                    if (modUser == null) modUser = "User " + rev.getModifiedBy();
-                    
-                    modelHist.addRow(new Object[]{
-                        versionNumber,
-                        rev.getFileName(),
-                        modUser, 
-                        (rev.getFileModTimestamp() != null ? rev.getFileModTimestamp().toString() : ""),
-                        rev.getCommitMessage()
-                    });
+                java.util.List<Object[]> versions = itemDAO.getFileVersions(itemId);
+                for (int i = versions.size() - 1; i >= 0; i--) {
+                    modelHist.addRow(versions.get(i));
                 }
             }
         } catch (SQLException e) {

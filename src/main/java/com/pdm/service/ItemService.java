@@ -188,6 +188,7 @@ public class ItemService {
                     
                     // Construct floating path from versioned path
                     // example: items/Root/000001/demo_1.c -> items/Root/000001/demo.c
+                    int counter = 1; // Declare here so it is accessible later
                     String floatingPath = versionedPath;
                     String newVersionedPath = versionedPath;
                     
@@ -204,7 +205,6 @@ public class ItemService {
                         String ext = (dotIndex == -1) ? "" : currentFile.substring(dotIndex);
                         
                         int lastUnder = nameWithoutExt.lastIndexOf('_');
-                        int counter = 1;
                         String baseName = nameWithoutExt;
                         if (lastUnder != -1) {
                             try {
@@ -226,12 +226,19 @@ public class ItemService {
                         boolean uploadedVers = cloudClient.uploadFile("pdm-vault", newVersionedPath, wsFile);
                         
                         if (uploadedMain && uploadedVers) {
-                            // 5. UPDATE Current Revision DB pointer to the new snapshot
+                            // 5. Create a NEW Revision row in the DB to make it visible in Version History!
                             java.sql.Timestamp fileMod = new java.sql.Timestamp(wsFile.lastModified());
+                            String newDbRevId = String.valueOf(counter); // e.g. "2", "3", "4"
                             
-                            if (itemDAO.updateRevisionFile(item.getId(), revisionId, newVersionedPath, currentUser.getId(), fileMod, commitMessage)) {
-                                itemDAO.logAudit(itemId, revisionId, currentUser.getId(), "Checkin_Success", "Cloud Vault Update: " + commitMessage);
-                                return itemDAO.checkin(item.getId(), revisionId); // Just unlock
+                            if (itemDAO.createNextRevision(item.getId(), revisionId, newVersionedPath, currentUser.getId(), fileMod)) {
+                                // createNextRevision sets status to 'In Work'. We need to update commit message!
+                                itemDAO.updateRevisionFile(item.getId(), newDbRevId, newVersionedPath, currentUser.getId(), fileMod, commitMessage);
+                                
+                                // Unlock the OLD revision
+                                itemDAO.checkin(item.getId(), revisionId);
+                                
+                                itemDAO.logAudit(itemId, newDbRevId, currentUser.getId(), "Checkin_Success", "Cloud Vault Update: " + commitMessage);
+                                return true;
                             }
                         } else {
                             System.err.println("Check-in Failed: Cloud Upload Error");

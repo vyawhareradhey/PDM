@@ -376,57 +376,80 @@ public class ItemService {
             com.pdm.core.Item item = itemDAO.getItemByItemId(itemId);
             if (item != null) {
                 java.util.List<com.pdm.core.ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
+                
+                // Bulletproof: Find the absolute latest iteration for the major revision being revised
+                String targetMajorRev = revisionId;
+                if (revisionId.contains(".")) {
+                    targetMajorRev = revisionId.substring(0, revisionId.indexOf('.'));
+                }
+                
+                com.pdm.core.ItemRevision latestR = null;
+                int maxIteration = -1;
+                
                 for (com.pdm.core.ItemRevision r : revs) {
-                    if (r.getRevisionId().equals(revisionId)) {
-                        
-                        // Figure out next major revision (A -> B)
-                        String baseRevStr = "A";
-                        int rDotIdx = revisionId.indexOf('.');
-                        if (rDotIdx != -1) {
-                            baseRevStr = revisionId.substring(0, rDotIdx);
-                        }
-                        char nextChar = baseRevStr.charAt(0);
-                        if (nextChar >= 'A' && nextChar < 'Z') {
-                            nextChar++;
-                        } else {
-                            nextChar = 'A';
-                        }
-                        String nextMajorRev = String.valueOf(nextChar);
-                        String nextDbRevId = nextMajorRev + ".1"; // reset version to 1
-                        
-                        String oldPath = r.getStoragePath();
-                        String newPath = oldPath;
-                        
-                        // Generate the new physical cloud path and duplicate the file
-                        if (oldPath != null && oldPath.contains("/")) {
-                            int lastSlash = oldPath.lastIndexOf('/');
-                            String directory = oldPath.substring(0, lastSlash);
-                            String fileName = r.getFileName();
-                            String cleanOriginalName = fileName.replaceAll("[^a-zA-Z0-9.-]", "_");
-                            
-                            int dotIndex = cleanOriginalName.lastIndexOf('.');
-                            String base = (dotIndex == -1) ? cleanOriginalName : cleanOriginalName.substring(0, dotIndex);
-                            String ext = (dotIndex == -1) ? "" : cleanOriginalName.substring(dotIndex);
-                            
-                            newPath = directory + "/" + base + "_" + nextMajorRev + "_1" + ext; // e.g. demo_B_1.c
-                            
-                            SupabaseStorageClient cloudClient = new SupabaseStorageClient();
-                            try {
-                                java.io.File tempFile = java.io.File.createTempFile("pdm_revise", ".tmp");
-                                if (cloudClient.downloadFile("pdm-vault", oldPath, tempFile)) {
-                                    cloudClient.uploadFile("pdm-vault", newPath, tempFile);
-                                    // Optionally re-upload floating path just in case
-                                    cloudClient.uploadFile("pdm-vault", directory + "/" + cleanOriginalName, tempFile);
-                                }
-                                tempFile.delete();
-                            } catch (Exception ex) {
-                                ex.printStackTrace();
-                            }
-                        }
-
-                        java.sql.Timestamp currentModTime = new java.sql.Timestamp(System.currentTimeMillis());
-                        return itemDAO.createNextRevision(item.getId(), revisionId, nextDbRevId, newPath, currentUser.getId(), currentModTime);
+                    String rRev = r.getRevisionId();
+                    String rMajor = rRev;
+                    int rIter = 1;
+                    if (rRev.contains(".")) {
+                        rMajor = rRev.substring(0, rRev.indexOf('.'));
+                        try {
+                            rIter = Integer.parseInt(rRev.substring(rRev.indexOf('.') + 1));
+                        } catch (Exception e){}
                     }
+                    if (rMajor.equals(targetMajorRev)) {
+                        if (rIter > maxIteration) {
+                            maxIteration = rIter;
+                            latestR = r;
+                        }
+                    }
+                }
+                
+                if (latestR != null) {
+                    com.pdm.core.ItemRevision r = latestR;
+                    
+                    // Figure out next major revision (A -> B)
+                    String baseRevStr = targetMajorRev;
+                    char nextChar = baseRevStr.charAt(0);
+                    if (nextChar >= 'A' && nextChar < 'Z') {
+                        nextChar++;
+                    } else {
+                        nextChar = 'A';
+                    }
+                    String nextMajorRev = String.valueOf(nextChar);
+                    String nextDbRevId = nextMajorRev + ".1"; // reset version to 1
+                    
+                    String oldPath = r.getStoragePath();
+                    String newPath = oldPath;
+                    
+                    // Generate the new physical cloud path and duplicate the file
+                    if (oldPath != null && oldPath.contains("/")) {
+                        int lastSlash = oldPath.lastIndexOf('/');
+                        String directory = oldPath.substring(0, lastSlash);
+                        String fileName = r.getFileName();
+                        String cleanOriginalName = fileName.replaceAll("[^a-zA-Z0-9.-]", "_");
+                        
+                        int dotIndex = cleanOriginalName.lastIndexOf('.');
+                        String base = (dotIndex == -1) ? cleanOriginalName : cleanOriginalName.substring(0, dotIndex);
+                        String ext = (dotIndex == -1) ? "" : cleanOriginalName.substring(dotIndex);
+                        
+                        newPath = directory + "/" + base + "_" + nextMajorRev + "_1" + ext; // e.g. demo_B_1.c
+                        
+                        SupabaseStorageClient cloudClient = new SupabaseStorageClient();
+                        try {
+                            java.io.File tempFile = java.io.File.createTempFile("pdm_revise", ".tmp");
+                            if (cloudClient.downloadFile("pdm-vault", oldPath, tempFile)) {
+                                cloudClient.uploadFile("pdm-vault", newPath, tempFile);
+                                // Optionally re-upload floating path just in case
+                                cloudClient.uploadFile("pdm-vault", directory + "/" + cleanOriginalName, tempFile);
+                            }
+                            tempFile.delete();
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                        }
+                    }
+
+                    java.sql.Timestamp currentModTime = new java.sql.Timestamp(System.currentTimeMillis());
+                    return itemDAO.createNextRevision(item.getId(), r.getRevisionId(), nextDbRevId, newPath, currentUser.getId(), currentModTime);
                 }
             }
         } catch (SQLException e) {

@@ -42,7 +42,6 @@ public class ItemDetailPanel extends JPanel {
     private JLabel titleLabel;
     
     // UI Panels for tabs to refresh
-    private JPanel revPanel;
     private JPanel histPanel;
 
     public ItemDetailPanel(MainFrame parent) {
@@ -95,6 +94,11 @@ public class ItemDetailPanel extends JPanel {
         btnCheckin.setFocusPainted(false);
         btnCheckin.addActionListener(e -> performCheckin());
         
+        JButton btnRevise = new JButton("Revise Item");
+        btnRevise.setFocusPainted(false);
+        btnRevise.addActionListener(e -> performRevise());
+        
+        actionPanel.add(btnRevise);
         actionPanel.add(btnCheckout);
         actionPanel.add(btnCheckin);
         
@@ -106,9 +110,6 @@ public class ItemDetailPanel extends JPanel {
         tabs.setFont(new Font("SansSerif", Font.PLAIN, 12));
         
         tabs.addTab("Properties", createPropertiesPanel());
-        
-        revPanel = createRevisionsPanel();
-        tabs.addTab("Current Revisions", revPanel);
         
         histPanel = createHistoryPanel();
         tabs.addTab("Version History", histPanel);
@@ -166,20 +167,7 @@ public class ItemDetailPanel extends JPanel {
         return tf;
     }
 
-    private JPanel createRevisionsPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        String[] cols = {"Revision", "Status", "ID"};
-        DefaultTableModel model = new DefaultTableModel(cols, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
-        JTable table = new JTable(model);
-        styleTable(table);
-        panel.add(new JScrollPane(table), BorderLayout.CENTER);
-        return panel;
-    }
+
     
     private JPanel createHistoryPanel() {
         JPanel panel = new JPanel(new BorderLayout());
@@ -220,29 +208,7 @@ public class ItemDetailPanel extends JPanel {
                 
                 List<ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
                 
-                // Revisions: Group by Major Revision to only show the latest status
-                JScrollPane spRev = (JScrollPane) revPanel.getComponent(0);
-                JTable tableRev = (JTable) spRev.getViewport().getView();
-                DefaultTableModel modelRev = (DefaultTableModel) tableRev.getModel();
-                modelRev.setRowCount(0);
-                
-                java.util.Map<String, ItemRevision> latestMajorRevs = new java.util.LinkedHashMap<>();
-                for (ItemRevision rev : revs) {
-                    String rId = rev.getRevisionId();
-                    String major = rId;
-                    if (rId.contains(".")) {
-                        major = rId.substring(0, rId.indexOf('.'));
-                    }
-                    latestMajorRevs.put(major, rev); // Overwrites with latest iteration
-                }
-                
-                for (ItemRevision rev : latestMajorRevs.values()) {
-                    String major = rev.getRevisionId();
-                    if (major.contains(".")) {
-                        major = major.substring(0, major.indexOf('.'));
-                    }
-                    modelRev.addRow(new Object[]{major, rev.getStatus(), rev.getId()});
-                }
+
                 
                 // History: Show EVERY iteration
                 JScrollPane spHist = (JScrollPane) histPanel.getComponent(0);
@@ -313,6 +279,67 @@ public class ItemDetailPanel extends JPanel {
                     JOptionPane.showMessageDialog(this, "Failed to unlock item.");
                 }
             }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private void performRevise() {
+        if (item == null) return;
+        try {
+            java.util.List<ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
+            if (revs.isEmpty()) return;
+            ItemRevision latestRev = revs.get(revs.size() - 1);
+            
+            // Build the dynamic Revisions UI
+            JPanel panel = new JPanel(new BorderLayout());
+            String[] cols = {"Revision", "Status", "ID"};
+            DefaultTableModel model = new DefaultTableModel(cols, 0) {
+                @Override
+                public boolean isCellEditable(int row, int column) { return false; }
+            };
+            JTable table = new JTable(model);
+            styleTable(table);
+            
+            java.util.Map<String, ItemRevision> latestMajorRevs = new java.util.LinkedHashMap<>();
+            for (ItemRevision rev : revs) {
+                String rId = rev.getRevisionId();
+                String major = rId;
+                if (rId.contains(".")) {
+                    major = rId.substring(0, rId.indexOf('.'));
+                }
+                latestMajorRevs.put(major, rev); 
+            }
+            
+            for (ItemRevision rev : latestMajorRevs.values()) {
+                String major = rev.getRevisionId();
+                if (major.contains(".")) {
+                    major = major.substring(0, major.indexOf('.'));
+                }
+                model.addRow(new Object[]{major, rev.getStatus(), rev.getId()});
+            }
+            
+            panel.add(new JScrollPane(table), BorderLayout.CENTER);
+            panel.setPreferredSize(new Dimension(400, 200));
+            
+            int result = JOptionPane.showConfirmDialog(
+                this, 
+                panel, 
+                "Current Revisions - Click OK to Create New Revision", 
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE
+            );
+            
+            if (result == JOptionPane.OK_OPTION) {
+                if (itemService.reviseItem(itemId, latestRev.getRevisionId())) {
+                    JOptionPane.showMessageDialog(this, "Item Revised Successfully!");
+                    loadData();
+                    parentFrame.refreshTableData();
+                } else {
+                    JOptionPane.showMessageDialog(this, "Failed to revise item.");
+                }
+            }
+            
         } catch (SQLException e) {
             e.printStackTrace();
         }

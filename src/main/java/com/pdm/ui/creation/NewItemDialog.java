@@ -86,7 +86,7 @@ public class NewItemDialog extends JDialog {
             public Component getListCellRendererComponent(javax.swing.JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof com.pdm.core.Folder) {
-                    setText(folderService.getPhysicalPath((com.pdm.core.Folder) value).replace("/Users/radheyvyawhare/Desktop/PDM/items/", ""));
+                    setText(folderService.getPhysicalPath((com.pdm.core.Folder) value));
                 }
                 return this;
             }

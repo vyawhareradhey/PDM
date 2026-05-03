@@ -128,11 +128,12 @@ public class ItemDAO {
         StringBuilder sql = new StringBuilder(
             "SELECT i.item_id, i.name, i.type, r.revision_id, r.status, r.is_locked, u.username, co_u.username as checked_out_user, ro.role_name as checked_out_role " +
             "FROM items i " +
-            "JOIN item_revisions r ON i.id = r.item_pk " +
+            "JOIN (SELECT item_pk, MAX(id) as max_id FROM item_revisions GROUP BY item_pk) latest_rev ON i.id = latest_rev.item_pk " +
+            "JOIN item_revisions r ON latest_rev.max_id = r.id " +
             "JOIN users u ON i.owner_id = u.id " +
             "LEFT JOIN users co_u ON r.checked_out_by = co_u.id " +
             "LEFT JOIN roles ro ON co_u.role_id = ro.id " +
-            "WHERE r.id = (SELECT MAX(id) FROM item_revisions rev WHERE rev.item_pk = i.id) "
+            "WHERE 1=1 "
         );
         
         if (query != null && !query.trim().isEmpty()) {
@@ -183,13 +184,13 @@ public class ItemDAO {
         
         String sql = "SELECT i.item_id, i.name, i.type, r.revision_id, r.status, r.is_locked, u.username, co_u.username as checked_out_user, ro.role_name as checked_out_role " +
                      "FROM items i " +
-                     "JOIN item_revisions r ON i.id = r.item_pk " +
+                     "JOIN (SELECT item_pk, MAX(id) as max_id FROM item_revisions GROUP BY item_pk) latest_rev ON i.id = latest_rev.item_pk " +
+                     "JOIN item_revisions r ON latest_rev.max_id = r.id " +
                      "JOIN users u ON i.owner_id = u.id " +
                      "LEFT JOIN users co_u ON r.checked_out_by = co_u.id " +
                      "LEFT JOIN roles ro ON co_u.role_id = ro.id " +
                      "JOIN folder_items fi ON i.id = fi.item_id " +
                      "WHERE fi.folder_id = ? " +
-                     "AND r.id = (SELECT MAX(id) FROM item_revisions rev WHERE rev.item_pk = i.id) " +
                      "ORDER BY i.item_id ASC";
         
         try (Connection conn = DatabaseManager.getInstance().getConnection();

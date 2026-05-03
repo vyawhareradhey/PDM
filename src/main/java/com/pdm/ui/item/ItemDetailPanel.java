@@ -220,25 +220,49 @@ public class ItemDetailPanel extends JPanel {
                 
                 List<ItemRevision> revs = itemDAO.getRevisions(item.getId(), item);
                 
-                // Revisions
+                // Revisions: Group by Major Revision to only show the latest status
                 JScrollPane spRev = (JScrollPane) revPanel.getComponent(0);
                 JTable tableRev = (JTable) spRev.getViewport().getView();
                 DefaultTableModel modelRev = (DefaultTableModel) tableRev.getModel();
                 modelRev.setRowCount(0);
                 
+                java.util.Map<String, ItemRevision> latestMajorRevs = new java.util.LinkedHashMap<>();
                 for (ItemRevision rev : revs) {
-                    modelRev.addRow(new Object[]{rev.getRevisionId(), rev.getStatus(), rev.getId()});
+                    String rId = rev.getRevisionId();
+                    String major = rId;
+                    if (rId.contains(".")) {
+                        major = rId.substring(0, rId.indexOf('.'));
+                    }
+                    latestMajorRevs.put(major, rev); // Overwrites with latest iteration
                 }
                 
-                // History
+                for (ItemRevision rev : latestMajorRevs.values()) {
+                    String major = rev.getRevisionId();
+                    if (major.contains(".")) {
+                        major = major.substring(0, major.indexOf('.'));
+                    }
+                    modelRev.addRow(new Object[]{major, rev.getStatus(), rev.getId()});
+                }
+                
+                // History: Show EVERY iteration
                 JScrollPane spHist = (JScrollPane) histPanel.getComponent(0);
                 JTable tableHist = (JTable) spHist.getViewport().getView();
                 DefaultTableModel modelHist = (DefaultTableModel) tableHist.getModel();
                 modelHist.setRowCount(0);
                 
-                java.util.List<Object[]> versions = itemDAO.getFileVersions(itemId);
-                for (int i = versions.size() - 1; i >= 0; i--) {
-                    modelHist.addRow(versions.get(i));
+                int versionNumber = revs.size();
+                for (int i = revs.size() - 1; i >= 0; i--) {
+                    ItemRevision rev = revs.get(i);
+                    String modUser = rev.getModifiedByName();
+                    if (modUser == null) modUser = "User " + rev.getModifiedBy();
+                    
+                    modelHist.addRow(new Object[]{
+                        versionNumber--,
+                        rev.getFileName(),
+                        modUser, 
+                        (rev.getFileModTimestamp() != null ? rev.getFileModTimestamp().toString() : ""),
+                        rev.getCommitMessage()
+                    });
                 }
             }
         } catch (SQLException e) {

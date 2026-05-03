@@ -74,17 +74,11 @@ public class ItemService {
                 revision.setModifiedBy(currentUser.getId());
                 
                 boolean revCreated = itemDAO.createRevision(revision);
-                if (revCreated) {
-                    // Log the first version to audit logs for Version History tab
-                    String auditDetails = versionedPath + " | Initial item creation";
-                    itemDAO.logAudit(itemId, "1", currentUser.getId(), "Checkin_Success", auditDetails);
-                    
-                    if (selectedFolder != null) {
-                        try {
-                            new com.pdm.dao.FolderDAO().addItemToFolder(selectedFolder.getId(), itemPk);
-                        } catch(SQLException ex) {
-                            ex.printStackTrace();
-                        }
+                if (revCreated && selectedFolder != null) {
+                    try {
+                        new com.pdm.dao.FolderDAO().addItemToFolder(selectedFolder.getId(), itemPk);
+                    } catch(SQLException ex) {
+                        ex.printStackTrace();
                     }
                 }
                 return revCreated;
@@ -232,16 +226,26 @@ public class ItemService {
                         boolean uploadedVers = cloudClient.uploadFile("pdm-vault", newVersionedPath, wsFile);
                         
                         if (uploadedMain && uploadedVers) {
-                            // 5. UPDATE Current Revision DB pointer to the new snapshot (keep Revisions and Versions independent)
+                            // 5. Create a NEW Revision row in the DB to make it visible in Version History!
                             java.sql.Timestamp fileMod = new java.sql.Timestamp(wsFile.lastModified());
                             
-                            if (itemDAO.updateRevisionFile(item.getId(), revisionId, newVersionedPath, currentUser.getId(), fileMod, commitMessage)) {
-                                // Unlock the revision
+                            // Parse base revision for dot notation
+                            String baseRev = revisionId;
+                            int dotIdx = revisionId.indexOf('.');
+                            if (dotIdx != -1) {
+                                baseRev = revisionId.substring(0, dotIdx);
+                            }
+                            
+                            String newDbRevId = baseRev + "." + (counter - 1); 
+                            
+                            if (itemDAO.createNextRevision(item.getId(), revisionId, newVersionedPath, currentUser.getId(), fileMod)) {
+                                // createNextRevision sets status to 'In Work'. We need to update commit message!
+                                itemDAO.updateRevisionFile(item.getId(), newDbRevId, newVersionedPath, currentUser.getId(), fileMod, commitMessage);
+                                
+                                // Unlock the OLD revision
                                 itemDAO.checkin(item.getId(), revisionId);
                                 
-                                // Log to audit logs with the specific versioned file path for the Version History tab
-                                String auditDetails = newVersionedPath + " | " + commitMessage;
-                                itemDAO.logAudit(itemId, revisionId, currentUser.getId(), "Checkin_Success", auditDetails);
+                                itemDAO.logAudit(itemId, newDbRevId, currentUser.getId(), "Checkin_Success", "Cloud Vault Update: " + commitMessage);
                                 return true;
                             }
                         } else {
@@ -364,9 +368,14 @@ public class ItemService {
                     if (r.getRevisionId().equals(revisionId)) {
                         
                         // Figure out next revision number
+                        String baseRevStr = revisionId;
+                        int rDotIdx = revisionId.indexOf('.');
+                        if (rDotIdx != -1) {
+                            baseRevStr = revisionId.substring(0, rDotIdx);
+                        }
                         int revNum = 1;
                         try {
-                            revNum = Integer.parseInt(revisionId);
+                            revNum = Integer.parseInt(baseRevStr);
                         } catch (Exception e) {}
                         String nextRev = String.valueOf(revNum + 1);
                         
@@ -441,18 +450,7 @@ public class ItemService {
                 SupabaseStorageClient cloudClient = new SupabaseStorageClient();
                 for (com.pdm.core.ItemRevision r : revs) {
                     if (r.getStoragePath() != null && !r.getStoragePath().isEmpty()) {
-                        // 1. Delete the versioned snapshot file
                         cloudClient.deleteFile("pdm-vault", r.getStoragePath());
-                        
-                        // 2. Compute and delete the floating latest file
-                        String vPath = r.getStoragePath();
-                        int lastSlash = vPath.lastIndexOf('/');
-                        if (lastSlash != -1) {
-                            String dir = vPath.substring(0, lastSlash);
-                            String fName = r.getFileName().replaceAll("[^a-zA-Z0-9.-]", "_");
-                            String floatingPath = dir + "/" + fName;
-                            cloudClient.deleteFile("pdm-vault", floatingPath);
-                        }
                     }
                 }
             }

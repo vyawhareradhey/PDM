@@ -326,9 +326,27 @@ public class ItemService {
                         String wsName = itemId + "_" + revisionId + "_" + r.getFileName();
                         java.io.File wsFile = new java.io.File(workspaceDir, wsName);
                         
-                        // We simply assume modified if it exists locally in the workspace.
-                        // Full byte comparison against cloud requires downloading it again, which is heavy.
-                        return wsFile.exists();
+                        if (!wsFile.exists()) return false;
+                        
+                        String cloudPath = r.getStoragePath();
+                        if (cloudPath == null || cloudPath.isEmpty()) return true;
+                        
+                        SupabaseStorageClient cloudClient = new SupabaseStorageClient();
+                        try {
+                            java.io.File tempFile = java.io.File.createTempFile("pdm_check", ".tmp");
+                            if (cloudClient.downloadFile("pdm-vault", cloudPath, tempFile)) {
+                                String localHash = calculateMD5(wsFile);
+                                String cloudHash = calculateMD5(tempFile);
+                                tempFile.delete();
+                                
+                                return !localHash.equals(cloudHash);
+                            }
+                            tempFile.delete();
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                        }
+                        
+                        return true; // Fallback to allowing check-in if cloud fetch fails
                     }
                 }
             }
@@ -336,6 +354,26 @@ public class ItemService {
             e.printStackTrace();
         }
         return false;
+    }
+    
+    private String calculateMD5(java.io.File file) {
+        try (java.io.InputStream is = new java.io.FileInputStream(file)) {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = is.read(buffer)) != -1) {
+                md.update(buffer, 0, read);
+            }
+            byte[] digest = md.digest();
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "";
+        }
     }
     
     public boolean unlockItem(String itemId, String revisionId) {

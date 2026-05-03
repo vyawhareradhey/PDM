@@ -199,11 +199,13 @@ public class MainFrame extends JFrame {
 
         // RBAC Check for Menu Visibility
         boolean isPrivileged = false;
+        boolean isAdmin = false;
         if (SessionContext.getInstance().getCurrentUser() != null) {
             String roleName = SessionContext.getInstance().getCurrentUser().getRole().getName();
             isPrivileged = "Admin".equalsIgnoreCase(roleName) || "Manager".equalsIgnoreCase(roleName);
+            isAdmin = "Admin".equalsIgnoreCase(roleName);
         }
-        reviseItem.setVisible(isPrivileged);
+        reviseItem.setVisible(isAdmin); // Admin only
         purgeItem.setVisible(isPrivileged);
         lockItem.setVisible(isPrivileged);
         unlockExplicit.setVisible(isPrivileged);

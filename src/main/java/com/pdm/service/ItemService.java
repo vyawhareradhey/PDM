@@ -42,7 +42,7 @@ public class ItemService {
             String ext = (dotIndex == -1) ? "" : cleanOriginalName.substring(dotIndex);
             
             String floatingPath = storageDir + "/" + itemId + "/" + cleanOriginalName;
-            String versionedPath = storageDir + "/" + itemId + "/" + base + "_1" + ext;
+            String versionedPath = storageDir + "/" + itemId + "/" + base + "_A_1" + ext;
             
             // Upload to Supabase Cloud - Floating Latest
             SupabaseStorageClient cloudClient = new SupabaseStorageClient();
@@ -68,8 +68,8 @@ public class ItemService {
                 // Re-create item with correct PK
                 Item persistedItem = new Item(itemPk, itemId, name, type, description, currentUser);
                 
-                // 3. Create Revision "1"
-                ItemRevision revision = new ItemRevision(0, persistedItem, "1", "In Work", originalName, storagePath);
+                // 3. Create Revision "A.1"
+                ItemRevision revision = new ItemRevision(0, persistedItem, "A.1", "In Work", originalName, storagePath);
                 revision.setCreatedBy(currentUser.getId());
                 revision.setModifiedBy(currentUser.getId());
                 
@@ -204,6 +204,12 @@ public class ItemService {
                         String nameWithoutExt = (dotIndex == -1) ? currentFile : currentFile.substring(0, dotIndex);
                         String ext = (dotIndex == -1) ? "" : currentFile.substring(dotIndex);
                         
+                        // Parse major revision from revisionId
+                        String majorRev = "A";
+                        if (revisionId.contains(".")) {
+                            majorRev = revisionId.substring(0, revisionId.indexOf('.'));
+                        }
+                        
                         int lastUnder = nameWithoutExt.lastIndexOf('_');
                         String baseName = nameWithoutExt;
                         if (lastUnder != -1) {
@@ -216,7 +222,13 @@ public class ItemService {
                         }
                         counter++; // Bump file iteration counter!
                         
-                        newVersionedPath = directory + "/" + baseName + "_" + counter + ext;
+                        // we need baseName without the majorRev too if it's there, but baseName is like demo_A
+                        // it's safer to just reconstruct from getFileName
+                        String pureFileName = currentRev.getFileName().replaceAll("[^a-zA-Z0-9.-]", "_");
+                        int pureDotIndex = pureFileName.lastIndexOf('.');
+                        String pureBase = (pureDotIndex == -1) ? pureFileName : pureFileName.substring(0, pureDotIndex);
+                        
+                        newVersionedPath = directory + "/" + pureBase + "_" + majorRev + "_" + counter + ext;
                     }
                     
                     if (wsFile.exists()) {
@@ -230,15 +242,15 @@ public class ItemService {
                             java.sql.Timestamp fileMod = new java.sql.Timestamp(wsFile.lastModified());
                             
                             // Parse base revision for dot notation
-                            String baseRev = revisionId;
+                            String baseRev = "A";
                             int dotIdx = revisionId.indexOf('.');
                             if (dotIdx != -1) {
                                 baseRev = revisionId.substring(0, dotIdx);
                             }
                             
-                            String newDbRevId = baseRev + "." + (counter - 1); 
+                            String newDbRevId = baseRev + "." + counter; 
                             
-                            if (itemDAO.createNextRevision(item.getId(), revisionId, newVersionedPath, currentUser.getId(), fileMod)) {
+                            if (itemDAO.createNextRevision(item.getId(), revisionId, newDbRevId, newVersionedPath, currentUser.getId(), fileMod)) {
                                 // createNextRevision sets status to 'In Work'. We need to update commit message!
                                 itemDAO.updateRevisionFile(item.getId(), newDbRevId, newVersionedPath, currentUser.getId(), fileMod, commitMessage);
                                 
@@ -367,17 +379,20 @@ public class ItemService {
                 for (com.pdm.core.ItemRevision r : revs) {
                     if (r.getRevisionId().equals(revisionId)) {
                         
-                        // Figure out next revision number
-                        String baseRevStr = revisionId;
+                        // Figure out next major revision (A -> B)
+                        String baseRevStr = "A";
                         int rDotIdx = revisionId.indexOf('.');
                         if (rDotIdx != -1) {
                             baseRevStr = revisionId.substring(0, rDotIdx);
                         }
-                        int revNum = 1;
-                        try {
-                            revNum = Integer.parseInt(baseRevStr);
-                        } catch (Exception e) {}
-                        String nextRev = String.valueOf(revNum + 1);
+                        char nextChar = baseRevStr.charAt(0);
+                        if (nextChar >= 'A' && nextChar < 'Z') {
+                            nextChar++;
+                        } else {
+                            nextChar = 'A';
+                        }
+                        String nextMajorRev = String.valueOf(nextChar);
+                        String nextDbRevId = nextMajorRev + ".1"; // reset version to 1
                         
                         String oldPath = r.getStoragePath();
                         String newPath = oldPath;
@@ -389,23 +404,11 @@ public class ItemService {
                             String fileName = r.getFileName();
                             String cleanOriginalName = fileName.replaceAll("[^a-zA-Z0-9.-]", "_");
                             
-                            String currentFile = oldPath.substring(lastSlash + 1);
-                            int dotIndex = currentFile.lastIndexOf('.');
-                            String nameWithoutExt = (dotIndex == -1) ? currentFile : currentFile.substring(0, dotIndex);
-                            String ext = (dotIndex == -1) ? "" : currentFile.substring(dotIndex);
+                            int dotIndex = cleanOriginalName.lastIndexOf('.');
+                            String base = (dotIndex == -1) ? cleanOriginalName : cleanOriginalName.substring(0, dotIndex);
+                            String ext = (dotIndex == -1) ? "" : cleanOriginalName.substring(dotIndex);
                             
-                            int lastUnder = nameWithoutExt.lastIndexOf('_');
-                            int counter = 1;
-                            String baseName = nameWithoutExt;
-                            if (lastUnder != -1) {
-                                try {
-                                    counter = Integer.parseInt(nameWithoutExt.substring(lastUnder + 1));
-                                    baseName = nameWithoutExt.substring(0, lastUnder);
-                                } catch (NumberFormatException e) {}
-                            }
-                            counter++; // Bump counter for new Revise iteration
-                            
-                            newPath = directory + "/" + baseName + "_" + counter + ext;
+                            newPath = directory + "/" + base + "_" + nextMajorRev + "_1" + ext; // e.g. demo_B_1.c
                             
                             SupabaseStorageClient cloudClient = new SupabaseStorageClient();
                             try {
@@ -422,7 +425,7 @@ public class ItemService {
                         }
 
                         java.sql.Timestamp currentModTime = new java.sql.Timestamp(System.currentTimeMillis());
-                        return itemDAO.createNextRevision(item.getId(), revisionId, newPath, currentUser.getId(), currentModTime);
+                        return itemDAO.createNextRevision(item.getId(), revisionId, nextDbRevId, newPath, currentUser.getId(), currentModTime);
                     }
                 }
             }

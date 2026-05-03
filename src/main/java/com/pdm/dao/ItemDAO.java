@@ -95,54 +95,6 @@ public class ItemDAO {
         return revs;
     }
 
-    public java.util.List<Object[]> getFileVersions(String itemId) throws SQLException {
-        java.util.List<Object[]> versions = new java.util.ArrayList<>();
-        String sql = "SELECT a.revision_id, a.details, a.timestamp, u.username " +
-                     "FROM item_audit_logs a " +
-                     "JOIN users u ON a.user_id = u.id " +
-                     "WHERE a.item_id = ? AND a.action = 'Checkin_Success' " +
-                     "ORDER BY a.id ASC";
-        
-        try (Connection conn = DatabaseManager.getInstance().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-             
-            stmt.setString(1, itemId);
-            try (ResultSet rs = stmt.executeQuery()) {
-                int versionNumber = 1;
-                while (rs.next()) {
-                    String revId = rs.getString("revision_id");
-                    String details = rs.getString("details");
-                    java.sql.Timestamp ts = rs.getTimestamp("timestamp");
-                    String user = rs.getString("username");
-                    
-                    String filePath = "";
-                    String msg = details;
-                    if (details != null && details.contains(" | ")) {
-                        String[] parts = details.split(" \\| ", 2);
-                        filePath = parts[0];
-                        msg = parts[1];
-                        
-                        // Extract just the file name from the path
-                        int lastSlash = filePath.lastIndexOf('/');
-                        if (lastSlash != -1) filePath = filePath.substring(lastSlash + 1);
-                    }
-                    
-                    // Prepend Revision ID to version number for clarity e.g. "Rev 1 - v1"
-                    String displayVersion = "Rev " + revId + " - Iteration " + versionNumber++;
-                    
-                    versions.add(new Object[]{
-                        displayVersion,
-                        filePath,
-                        user,
-                        (ts != null ? ts.toString() : ""),
-                        msg
-                    });
-                }
-            }
-        }
-        return versions;
-    }
-
     public String generateNextItemId() throws SQLException {
         // Simple auto-increment for strings 000001, 000002...
         String sql = "SELECT MAX(item_id) FROM items";
@@ -180,7 +132,7 @@ public class ItemDAO {
             "JOIN users u ON i.owner_id = u.id " +
             "LEFT JOIN users co_u ON r.checked_out_by = co_u.id " +
             "LEFT JOIN roles ro ON co_u.role_id = ro.id " +
-            "WHERE 1=1 "
+            "WHERE r.id = (SELECT MAX(id) FROM item_revisions rev WHERE rev.item_pk = i.id) "
         );
         
         if (query != null && !query.trim().isEmpty()) {
@@ -237,7 +189,8 @@ public class ItemDAO {
                      "LEFT JOIN roles ro ON co_u.role_id = ro.id " +
                      "JOIN folder_items fi ON i.id = fi.item_id " +
                      "WHERE fi.folder_id = ? " +
-                     "ORDER BY i.item_id ASC, r.revision_id ASC";
+                     "AND r.id = (SELECT MAX(id) FROM item_revisions rev WHERE rev.item_pk = i.id) " +
+                     "ORDER BY i.item_id ASC";
         
         try (Connection conn = DatabaseManager.getInstance().getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -324,22 +277,14 @@ public class ItemDAO {
         }
     }
 
-    public boolean createNextRevision(int itemPk, String currentRevId, String newStoragePath, int userId, java.sql.Timestamp fileModTimestamp) throws SQLException {
-        // Numeric logic: 1 -> 2, 2 -> 3
-        int revNum = 1;
-        try {
-            revNum = Integer.parseInt(currentRevId);
-        } catch (NumberFormatException e) {
-            // Fallback if legacy A, B exist, just assign a random large number or force "1"
-        }
-        String nextRev = String.valueOf(revNum + 1);
+    public boolean createNextRevision(int itemPk, String currentRevId, String newRevId, String newStoragePath, int userId, java.sql.Timestamp fileModTimestamp) throws SQLException {
         
         String sql = "INSERT INTO item_revisions (item_pk, revision_id, status, checked_out_by, is_locked, file_name, storage_path, created_by, modified_by, file_mod_timestamp) " +
                      "SELECT item_pk, ?, 'In Work', NULL, FALSE, file_name, ?, ?, ?, ? FROM item_revisions WHERE item_pk = ? AND revision_id = ?";
                      
         try (Connection conn = DatabaseManager.getInstance().getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, nextRev);
+            stmt.setString(1, newRevId);
             stmt.setString(2, newStoragePath); // New Path
             stmt.setInt(3, userId); // Created By
             stmt.setInt(4, userId); // Modified By
